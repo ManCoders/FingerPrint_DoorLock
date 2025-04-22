@@ -8,12 +8,16 @@ const int relay = 4;
 const int ledRed = 11;
 const int ledBlue = 12;
 const int ledGreen = 10;
-const int vibrator = 6;
+const int shake = 6;
 
 #define buzzer 5
 
+unsigned long previousMillis = 0; 
+const long interval = 50;
+
 void setup() {
   Serial.begin(9600);
+  pinMode(shake, INPUT);
   pinMode(ledRed, OUTPUT);
   pinMode(ledBlue, OUTPUT);
   pinMode(ledGreen, OUTPUT);
@@ -29,7 +33,7 @@ void setup() {
   while (!finger.verifyPassword()) {
     Serial.println("Waiting for fingerprint sensor...");
     ledAlert();
-    delay(1000);  // Wait a bit before retrying
+    delay(1000);  
   }
 
   Serial.println("Found fingerprint sensor!");
@@ -39,6 +43,20 @@ void setup() {
 }
 
 void loop() {
+  unsigned long currentMillis = millis();  // Get current time
+
+  // Check for shake detection every 100 milliseconds (non-blocking)
+  if (currentMillis - previousMillis >= interval) {
+    // Save the last time the shake status was checked
+    previousMillis = currentMillis;
+
+    int shakeStatus = digitalRead(shake);  // Read the shake sensor state
+    if (shakeStatus == HIGH) {  
+      Serial.println("Shake detected!");
+      playEarthquakeAlert();
+    }
+  }
+
   getFingerprintID();
   delay(100);  // Short delay to prevent rapid polling
 }
@@ -174,5 +192,28 @@ void playAlertTone() {
     delay(200);                  // Play for 200ms
     noTone(buzzer);
     delay(100);  // Wait between beeps
+  }
+}
+
+
+// Function to play earthquake-like sound with buzzer
+void playEarthquakeAlert() {
+  flashRedLED();
+  for (int i = 0; i < 10; i++) {  // Play 10 quick variations in pitch
+    int freq = random(500, 2000);  // Random frequency between 500Hz and 2kHz
+    tone(buzzer, freq);  // Play tone with random frequency
+    delay(random(50, 150));  // Random delay between 50ms and 150ms
+    noTone(buzzer);  // Stop tone
+    delay(random(50, 150));  // Random delay before the next tone
+  }
+}
+
+// Function to flash red LED
+void flashRedLED() {
+  for (int i = 0; i < 5; i++) {  // Flash the LED 5 times
+    digitalWrite(ledRed, HIGH);  // Turn on the LED
+    delay(100);                  // LED on for 100ms
+    digitalWrite(ledRed, LOW);   // Turn off the LED
+    delay(100);                  // LED off for 100ms
   }
 }
