@@ -8,23 +8,32 @@ const int relay = 4;
 const int ledRed = 11;
 const int ledBlue = 12;
 const int vibrator = 6;
-const int buzzer = 5;
+#define buzzer 5
 
 void setup() {
   Serial.begin(9600);
-  while (!Serial);
+  pinMode(ledRed,OUTPUT);
+  pinMode(ledBlue,OUTPUT);
+  pinMode(buzzer, OUTPUT);
+  pinMode(relay, OUTPUT);
+  while (!Serial)
+    ;
 
   finger.begin(57600);
   delay(1000);
 
-  if (finger.verifyPassword()) {
-    Serial.println("Found fingerprint sensor!");
-    finger.LEDcontrol(0x00);
-    enrollFingerprint();
-  } else {
-    Serial.println("Did not find fingerprint sensor :(");
-    while (1);
+
+  while (!finger.verifyPassword()) {
+    Serial.println("Waiting for fingerprint sensor...");
+    delay(1000);  // Wait a bit before retrying
   }
+
+  Serial.println("Found fingerprint sensor!");
+    finger.LEDcontrol(0x00);
+    digitalWrite(ledRed, HIGH);
+    enrollFingerprint();
+    
+
 }
 
 void loop() {
@@ -33,6 +42,7 @@ void loop() {
 }
 
 void enrollFingerprint() {
+  digitalWrite(ledRed, HIGH);
   Serial.println("Finger Registering..");
 
   // Clear the fingerprint database
@@ -45,9 +55,10 @@ void enrollFingerprint() {
 
   finger.LEDcontrol(0x01);
   Serial.println("Place your finger...");
-  
+
   // First scan
-  while (finger.getImage() != FINGERPRINT_OK);
+  while (finger.getImage() != FINGERPRINT_OK)
+    ;
   if (finger.image2Tz(1) != FINGERPRINT_OK) {
     Serial.println("[Failed] Convert First Image");
     return;
@@ -56,13 +67,17 @@ void enrollFingerprint() {
   delay(1000);
 
   Serial.println("Remove finger...");
+  finger.LEDcontrol(0x00);
   delay(2000);
-
+  finger.LEDcontrol(0x01);
   Serial.println("Place the same finger again...");
+  
 
   // Wait for finger removal then second scan
-  while (finger.getImage() != FINGERPRINT_NOFINGER);
-  while (finger.getImage() != FINGERPRINT_OK);
+  while (finger.getImage() != FINGERPRINT_NOFINGER)
+    ;
+  while (finger.getImage() != FINGERPRINT_OK)
+    ;
   if (finger.image2Tz(2) != FINGERPRINT_OK) {
     Serial.println("[Failed] Convert Second Image");
     return;
@@ -88,6 +103,8 @@ void enrollFingerprint() {
 }
 
 void getFingerprintID() {
+  digitalWrite(ledRed, LOW);
+  digitalWrite(ledBlue, HIGH);
   finger.LEDcontrol(0x01);
 
   uint8_t p = finger.getImage();
@@ -103,9 +120,24 @@ void getFingerprintID() {
     Serial.print("Confidence: ");
     Serial.println(finger.confidence);
     finger.LEDcontrol(0x00);
+    digitalWrite(relay,HIGH);
+    playAlertTone();
     delay(3000);
+    digitalWrite(relay,LOW);
   } else {
     Serial.println("Finger not recognized.");
   }
   finger.LEDcontrol(0x00);
+}
+
+
+void playAlertTone() {
+  for (int i = 0; i < 3; i++) {  // Beep 3 times
+    tone(buzzer, 1000);          // 1kHz tone
+    digitalWrite(buzzer,HIGH);
+    
+    delay(200);                  // Play for 200ms
+    noTone(buzzer);
+    delay(100);  // Wait between beeps
+  }
 }
