@@ -1,219 +1,206 @@
+
 #include <Adafruit_Fingerprint.h>
-#include <SoftwareSerial.h>
 
-SoftwareSerial mySerial(2, 3);  // RX, TX
-Adafruit_Fingerprint finger(&mySerial);
 
-const int relay = 4;
-const int ledRed = 11;
-const int ledBlue = 12;
-const int ledGreen = 10;
-const int shake = 6;
+#if (defined(__AVR__) || defined(ESP8266)) && !defined(__AVR_ATmega2560__)
+SoftwareSerial mySerial(6, 7);
+#else
+#define mySerial Serial1
+#endif
 
-#define buzzer 5
+Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 
-unsigned long previousMillis = 0; 
-const long interval = 50;
-
-void setup() {
+uint8_t id;
+void setup()
+{
   Serial.begin(9600);
-  pinMode(shake, INPUT);
-  pinMode(ledRed, OUTPUT);
-  pinMode(ledBlue, OUTPUT);
-  pinMode(ledGreen, OUTPUT);
-  pinMode(buzzer, OUTPUT);
-  pinMode(relay, OUTPUT);
-  while (!Serial)
-    ;
+  while (!Serial); 
+  delay(100);
+  Serial.println("\n\nAdafruit Fingerprint sensor enrollment");
 
   finger.begin(57600);
-  delay(1000);
 
-
-  while (!finger.verifyPassword()) {
-    Serial.println("Waiting for fingerprint sensor...");
-    ledAlert();
-    delay(1000);  
-  }
-
-  Serial.println("Found fingerprint sensor!");
-  finger.LEDcontrol(0x00);
-
-  enrollFingerprint();
-}
-
-void loop() {
-  unsigned long currentMillis = millis();  // Get current time
-
-  // Check for shake detection every 100 milliseconds (non-blocking)
-  if (currentMillis - previousMillis >= interval) {
-    // Save the last time the shake status was checked
-    previousMillis = currentMillis;
-
-    int shakeStatus = digitalRead(shake);  // Read the shake sensor state
-    if (shakeStatus == HIGH) {  
-      Serial.println("Shake detected!");
-      playEarthquakeAlert();
-    }
-  }
-
-  getFingerprintID();
-  delay(100);  // Short delay to prevent rapid polling
-}
-
-bool enrollFingerprint() {
- digitalWrite(ledRed, HIGH);
-  Serial.println("Finger Registering..");
-
-  // Clear the fingerprint database
-  if (finger.emptyDatabase() == FINGERPRINT_OK) {
-    Serial.println("[Success] Reset Db..");
-  } else {
-    Serial.println("[Failed] Reset Db..");
-    return;
-  }
-
-  finger.LEDcontrol(0x01);
-  ledGranted();
-  Serial.println("Place your finger...");
-
-  // First scan
-  while (finger.getImage() != FINGERPRINT_OK)
-    ;
-  if (finger.image2Tz(1) != FINGERPRINT_OK) {
-    Serial.println("[Failed] Convert First Image");
-    return false;
-  }
-  Serial.println("[Success] First image captured.");
-  delay(1000);
-
-  Serial.println("Remove finger...");
-  finger.LEDcontrol(0x00);
-  delay(2000);
-  finger.LEDcontrol(0x01);
-  Serial.println("Place the same finger again...");
-
-
-  // Wait for finger removal then second scan
-  while (finger.getImage() != FINGERPRINT_NOFINGER)
-    ;
-  while (finger.getImage() != FINGERPRINT_OK)
-    ;
-  if (finger.image2Tz(2) != FINGERPRINT_OK) {
-    Serial.println("[Failed] Convert Second Image");
-    return false;
-  }
-  Serial.println("[Success] Second image captured.");
-
-
-  // Create and store model
-  if (finger.createModel() == FINGERPRINT_OK) {
-    if (finger.storeModel(1) == FINGERPRINT_OK) {
-      Serial.println("[Success] Fingerprint enrolled to ID #1");
+  while (true) {
+    if (finger.verifyPassword()) {
+      Serial.println("Found fingerprint sensor!");
+      break; 
     } else {
-      Serial.println("[Failed] Store Model");
+      Serial.println("Did not find fingerprint sensor :(");
+      delay(1000); // Wait for a second before retrying
     }
-  } else {
-    Serial.println("[Failed] Create Model, Please Try Again!");
-    enrollFingerprint();
-    return false;
   }
 
-  finger.LEDcontrol(0x00);
+  Serial.println(F("Reading sensor parameters"));
+  finger.getParameters();
+  Serial.print(F("Status: 0x")); Serial.println(finger.status_reg, HEX);
+  Serial.print(F("Sys ID: 0x")); Serial.println(finger.system_id, HEX);
+  Serial.print(F("Capacity: ")); Serial.println(finger.capacity);
+  Serial.print(F("Security level: ")); Serial.println(finger.security_level);
+  Serial.print(F("Device address: ")); Serial.println(finger.device_addr, HEX);
+  Serial.print(F("Packet len: ")); Serial.println(finger.packet_len);
+  Serial.print(F("Baud rate: ")); Serial.println(finger.baud_rate);
+}
+
+uint8_t readnumber(void) {
+  uint8_t num = 0;
+
+  while (num == 0) {
+    while (! Serial.available());
+    num = Serial.parseInt();
+  }
+  return num;
+}
+
+void loop()                  
+{
+  Serial.println("Ready to enroll a fingerprint!");
+  Serial.println("Please type in the ID # (from 1 to 127) you want to save this finger as...");
+  id = readnumber();
+  if (id == 0) {// ID #0 not allowed, try again!
+     return;
+  }
+  Serial.print("Enrolling ID #");
+  Serial.println(id);
+
+  while (! getFingerprintEnroll() );
+}
+
+uint8_t getFingerprintEnroll() {
+  int p = -1;
+  Serial.print("Waiting for valid finger to enroll as #"); Serial.println(id);
+  while (p != FINGERPRINT_OK) {
+    p = finger.getImage();
+    switch (p) {
+    case FINGERPRINT_OK:
+      Serial.println("Image taken");
+      break;
+    case FINGERPRINT_NOFINGER:
+      Serial.print(".");
+      break;
+    case FINGERPRINT_PACKETRECIEVEERR:
+      Serial.println("Communication error");
+      break;
+    case FINGERPRINT_IMAGEFAIL:
+      Serial.println("Imaging error");
+      break;
+    default:
+      Serial.println("Unknown error");
+      break;
+    }
+  }
+
+  // OK success!
+
+  p = finger.image2Tz(1);
+  switch (p) {
+    case FINGERPRINT_OK:
+      Serial.println("Image converted");
+      break;
+    case FINGERPRINT_IMAGEMESS:
+      Serial.println("Image too messy");
+      return p;
+    case FINGERPRINT_PACKETRECIEVEERR:
+      Serial.println("Communication error");
+      return p;
+    case FINGERPRINT_FEATUREFAIL:
+      Serial.println("Could not find fingerprint features");
+      return p;
+    case FINGERPRINT_INVALIDIMAGE:
+      Serial.println("Could not find fingerprint features");
+      return p;
+    default:
+      Serial.println("Unknown error");
+      return p;
+  }
+
+  Serial.println("Remove finger");
   delay(2000);
-  return true;
-}
+  p = 0;
+  while (p != FINGERPRINT_NOFINGER) {
+    p = finger.getImage();
+  }
+  Serial.print("ID "); Serial.println(id);
+  p = -1;
+  Serial.println("Place same finger again");
+  while (p != FINGERPRINT_OK) {
+    p = finger.getImage();
+    switch (p) {
+    case FINGERPRINT_OK:
+      Serial.println("Image taken");
+      break;
+    case FINGERPRINT_NOFINGER:
+      Serial.print(".");
+      break;
+    case FINGERPRINT_PACKETRECIEVEERR:
+      Serial.println("Communication error");
+      break;
+    case FINGERPRINT_IMAGEFAIL:
+      Serial.println("Imaging error");
+      break;
+    default:
+      Serial.println("Unknown error");
+      break;
+    }
+  }
 
-void getFingerprintID() {
-  digitalWrite(ledRed, LOW);
-  digitalWrite(ledBlue, HIGH);
-  finger.LEDcontrol(0x01);
+  // OK success!
 
-  uint8_t p = finger.getImage();
-  if (p != FINGERPRINT_OK) return;
+  p = finger.image2Tz(2);
+  switch (p) {
+    case FINGERPRINT_OK:
+      Serial.println("Image converted");
+      break;
+    case FINGERPRINT_IMAGEMESS:
+      Serial.println("Image too messy");
+      return p;
+    case FINGERPRINT_PACKETRECIEVEERR:
+      Serial.println("Communication error");
+      return p;
+    case FINGERPRINT_FEATUREFAIL:
+      Serial.println("Could not find fingerprint features");
+      return p;
+    case FINGERPRINT_INVALIDIMAGE:
+      Serial.println("Could not find fingerprint features");
+      return p;
+    default:
+      Serial.println("Unknown error");
+      return p;
+  }
 
-  p = finger.image2Tz();
-  if (p != FINGERPRINT_OK) return;
+  // OK converted!
+  Serial.print("Creating model for #");  Serial.println(id);
 
-  p = finger.fingerFastSearch();
+  p = finger.createModel();
   if (p == FINGERPRINT_OK) {
-    Serial.print("Found ID #");
-    Serial.println(finger.fingerID);
-    Serial.print("Confidence: ");
-    Serial.println(finger.confidence);
-    finger.LEDcontrol(0x00);
-    digitalWrite(relay, HIGH);
-    playAccessTone();
-    ledGranted();
-    delay(3000);
-    digitalWrite(relay, LOW);
+    Serial.println("Prints matched!");
+  } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
+    Serial.println("Communication error");
+    return p;
+  } else if (p == FINGERPRINT_ENROLLMISMATCH) {
+    Serial.println("Fingerprints did not match");
+    return p;
   } else {
-    
-    playAlertTone();
-    Serial.println("Finger not recognized.");
+    Serial.println("Unknown error");
+    return p;
   }
-  finger.LEDcontrol(0x00);
-}
 
-void ledGranted() {
-  for (int i = 0; i < 3; i++) {  // Blink LED 3 times
-    digitalWrite(ledGreen, HIGH);
-    delay(200);  // LED on for 200ms
-    digitalWrite(ledGreen, LOW);
-    delay(200);  // LED off for 200ms
+  Serial.print("ID "); Serial.println(id);
+  p = finger.storeModel(id);
+  if (p == FINGERPRINT_OK) {
+    Serial.println("Stored!");
+  } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
+    Serial.println("Communication error");
+    return p;
+  } else if (p == FINGERPRINT_BADLOCATION) {
+    Serial.println("Could not store in that location");
+    return p;
+  } else if (p == FINGERPRINT_FLASHERR) {
+    Serial.println("Error writing to flash");
+    return p;
+  } else {
+    Serial.println("Unknown error");
+    return p;
   }
-}
 
-void ledAlert() {
-  for(int i = 1; i<3; i++){
-    digitalWrite(ledRed, HIGH);
-    delay(200);
-    digitalWrite(ledRed, LOW);
-    delay(200);
-  }
-}
-
-
-void playAccessTone() {
-  ledAlert();
-  tone(buzzer, 1500);  // Play 1.5kHz tone
-  delay(200);          // For 200 milliseconds
-  noTone(buzzer);      // Stop tone
-  delay(100);
-  tone(buzzer, 2000);  // Then a higher tone (like a "ding-ding")
-  delay(200);
-  noTone(buzzer);
-}
-
-void playAlertTone() {
-  ledAlert();
-  for (int i = 0; i < 3; i++) {  // Beep 3 times
-    tone(buzzer, 1000);          // 1kHz tone
-    delay(200);                  // Play for 200ms
-    noTone(buzzer);
-    delay(100);  // Wait between beeps
-  }
-}
-
-
-// Function to play earthquake-like sound with buzzer
-void playEarthquakeAlert() {
-  flashRedLED();
-  for (int i = 0; i < 10; i++) {  // Play 10 quick variations in pitch
-    int freq = random(500, 2000);  // Random frequency between 500Hz and 2kHz
-    tone(buzzer, freq);  // Play tone with random frequency
-    delay(random(50, 150));  // Random delay between 50ms and 150ms
-    noTone(buzzer);  // Stop tone
-    delay(random(50, 150));  // Random delay before the next tone
-  }
-}
-
-// Function to flash red LED
-void flashRedLED() {
-  for (int i = 0; i < 5; i++) {  // Flash the LED 5 times
-    digitalWrite(ledRed, HIGH);  // Turn on the LED
-    delay(100);                  // LED on for 100ms
-    digitalWrite(ledRed, LOW);   // Turn off the LED
-    delay(100);                  // LED off for 100ms
-  }
+  return true;
 }
