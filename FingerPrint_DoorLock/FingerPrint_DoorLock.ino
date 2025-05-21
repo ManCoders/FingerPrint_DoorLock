@@ -1,4 +1,4 @@
-
+/* REGISTRATION OF FINGERPRINT OF SENSOR */
 #include <Adafruit_Fingerprint.h>
 
 
