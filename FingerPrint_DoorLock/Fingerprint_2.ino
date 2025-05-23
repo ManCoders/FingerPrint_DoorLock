@@ -4,7 +4,7 @@
 #include <SoftwareSerial.h>
 SoftwareSerial mySerial(6, 7);
 #else
-#define mySerial Serial1
+#define mySerial Serial
 #endif
 
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
